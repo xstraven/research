@@ -32,11 +32,7 @@ v_comet = np.array([-38000, 0])  # Initial velocity of comet
 def acceleration_by_sun(r):
     """Calculate acceleration due to gravity from Sun"""
     r_sun = np.array([0, 0])
-    a_sun = -G * M_sun * (r - r_sun) / np.linalg.norm(r - r_sun) ** 3
-    return a_sun
-
-
-def acceleration_by_earth(r, r_earth):
+    a_sun = -G * M_sun * (r - r_sun) / np.linalg.norm(r - r_sun) ** 3v
     """Calculate acceleration due to gravity from Earth"""
     a_earth = -G * M_earth * (r - r_earth) / np.linalg.norm(r - r_earth) ** 3
     return a_earth
