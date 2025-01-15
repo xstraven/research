@@ -8,7 +8,12 @@ import vertexai  # type: ignore
 from vertexai.generative_models import GenerativeModel  # type: ignore
 from pydantic import BaseModel, Field
 from typing import List
-from vertexai.preview.tokenization import get_tokenizer_for_model
+import os
+
+os.environ["HF_HOME"] = os.path.expanduser("~/.cache/huggingface")
+# Now import transformers, datasets, etc
+
+# from vertexai.preview.tokenization import get_tokenizer_for_model
 
 PATH_TO_DATA = Path("~/projects/open-discourse/python/data/03_final")
 SPEECHES = "speech_content.pkl"
@@ -38,7 +43,6 @@ speeches20["chunked_speech"] = speeches20.speech_content.apply(
 )
 speeches20_expl = speeches20.explode("chunked_speech")
 speeches20_expl.shape
-speeches20_expl_sample = speeches20_expl.sample(100, random_state=42)
 vertexai.init()
 model_str = "gemini-1.5-flash"
 # tokenizer = get_tokenizer_for_model(model_str)
@@ -78,6 +82,8 @@ client = instructor.from_vertexai(
     mode=instructor.Mode.VERTEXAI_TOOLS,
 )
 
+speeches20_expl_sample = speeches20_expl.sample(100, random_state=42)
+
 
 def get_training_queries(speech_snippet):
     time.sleep(0.5)  # to avoid rate limiting
@@ -110,11 +116,49 @@ def get_training_queries(speech_snippet):
         return resp
 
 
-speeches20_expl_sample["training_queries"] = (
-    speeches20_expl_sample.chunked_speech.apply(get_training_queries)
-)
-speeches20_expl_sample.training_queries
+# speeches20_expl_sample["training_queries"] = (
+#     speeches20_expl_sample.chunked_speech.apply(get_training_queries)
+# )
+# speeches20_expl_sample["training_queries_queries"] = speeches20_expl_sample[
+#     "training_queries"
+# ].apply(lambda x: x.dict()["queries"])
+# speeches20_expl_sample["training_queries_questions"] = speeches20_expl_sample[
+#     "training_queries"
+# ].apply(lambda x: x.dict()["questions"])
+# del speeches20_expl_sample["training_queries"]
+# speeches20_expl_sample.to_pickle("speeches20_expl_sample.pkl")
 
-## TODO
-### improve parsing model
-### fine-tune parlbert model with sentence-transformers
+speeches20_expl_sample = pd.read_pickle("speeches20_expl_sample.pkl")
+speeches20_expl_sample.columns
+df = speeches20_expl_sample.copy()
+df["positive"] = df.apply(
+    lambda x: x.training_queries_queries + x.training_queries_questions, axis=1
+)
+df.rename(columns={"chunked_speech": "anchor"}, inplace=True)
+df = df.explode("positive")
+df = df.sample(frac=1, random_state=42)
+df["negative"] = df["positive"].shift(1)
+df = df.dropna(subset=["negative"])
+keep_cols = ["anchor", "positive", "negative"]
+meta_cols = [
+    "id",
+    "electoral_term",
+    "session",
+    "first_name",
+    "document_url",
+    "last_name",
+    "faction_id",
+    "position_short",
+    "position_long",
+    "politician_id",
+    "speech_content",
+    "date",
+]
+df = df[keep_cols + meta_cols]
+
+speeches_queries_dataset = Dataset.from_pandas(df[keep_cols])
+# train - test - dev split
+speeches_queries_dataset = speeches_queries_dataset.train_test_split(
+    test_size=0.4
+)
+speeches_queries_dataset.push_to_hub("parl-synthetic-queries")
