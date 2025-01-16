@@ -195,3 +195,244 @@ print(results)
 
 
 # Fast tokenizers in the QA pipeline
+from transformers import pipeline
+
+question_answerer = pipeline("question-answering")
+context = """
+🤗 Transformers is backed by the three most popular deep learning libraries — Jax, PyTorch, and TensorFlow — with a seamless integration
+between them. It's straightforward to train your models with one before loading them for inference with the other.
+"""
+question = "Which deep learning libraries back 🤗 Transformers?"
+question_answerer(question=question, context=context)
+
+
+## using a long context
+
+long_context = """
+🤗 Transformers: State of the Art NLP
+
+🤗 Transformers provides thousands of pretrained models to perform tasks on texts such as classification, information extraction,
+question answering, summarization, translation, text generation and more in over 100 languages.
+Its aim is to make cutting-edge NLP easier to use for everyone.
+
+🤗 Transformers provides APIs to quickly download and use those pretrained models on a given text, fine-tune them on your own datasets and
+then share them with the community on our model hub. At the same time, each python module defining an architecture is fully standalone and
+can be modified to enable quick research experiments.
+
+Why should I use transformers?
+
+1. Easy-to-use state-of-the-art models:
+  - High performance on NLU and NLG tasks.
+  - Low barrier to entry for educators and practitioners.
+  - Few user-facing abstractions with just three classes to learn.
+  - A unified API for using all our pretrained models.
+  - Lower compute costs, smaller carbon footprint:
+
+2. Researchers can share trained models instead of always retraining.
+  - Practitioners can reduce compute time and production costs.
+  - Dozens of architectures with over 10,000 pretrained models, some in more than 100 languages.
+
+3. Choose the right framework for every part of a model's lifetime:
+  - Train state-of-the-art models in 3 lines of code.
+  - Move a single model between TF2.0/PyTorch frameworks at will.
+  - Seamlessly pick the right framework for training, evaluation and production.
+
+4. Easily customize a model or an example to your needs:
+  - We provide examples for each architecture to reproduce the results published by its original authors.
+  - Model internals are exposed as consistently as possible.
+  - Model files can be used independently of the library for quick experiments.
+
+🤗 Transformers is backed by the three most popular deep learning libraries — Jax, PyTorch and TensorFlow — with a seamless integration
+between them. It's straightforward to train your models with one before loading them for inference with the other.
+"""
+question_answerer(question=question, context=long_context)
+
+
+from transformers import AutoTokenizer, AutoModelForQuestionAnswering
+
+model_checkpoint = "distilbert-base-cased-distilled-squad"
+tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+model = AutoModelForQuestionAnswering.from_pretrained(model_checkpoint)
+
+inputs = tokenizer(question, context, return_tensors="pt")
+outputs = model(**inputs)
+
+start_logits = outputs.start_logits
+end_logits = outputs.end_logits
+print(start_logits.shape, end_logits.shape)
+
+
+import torch
+
+sequence_ids = inputs.sequence_ids()
+# Mask everything apart from the tokens of the context
+mask = [i != 1 for i in sequence_ids]
+# Unmask the [CLS] token
+mask[0] = False
+mask = torch.tensor(mask)[None]
+
+start_logits[mask] = -10000
+end_logits[mask] = -10000
+
+start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)[0]
+end_probabilities = torch.nn.functional.softmax(end_logits, dim=-1)[0]
+
+scores = start_probabilities[:, None] * end_probabilities[None, :]
+scores = torch.triu(scores)  # returns the upper triangular part of the matrix
+
+max_index = scores.argmax().item()
+start_index = max_index // scores.shape[1]
+end_index = max_index % scores.shape[1]
+print(scores[start_index, end_index])
+
+##  Try it out! Compute the start and end indices for the five most likely answers.
+max_indeces = torch.topk(scores.flatten(), 5).indices
+start_indeces = max_indeces // scores.shape[1]
+end_indeces = max_indeces % scores.shape[1]
+print(start_indeces, end_indeces)
+##
+
+inputs_with_offsets = tokenizer(question, context, return_offsets_mapping=True)
+offsets = inputs_with_offsets["offset_mapping"]
+
+start_chars = [offsets[start_index][0] for start_index in start_indeces]
+end_chars = [offsets[end_index][1] for end_index in end_indeces]
+answers = [
+    context[start_char:end_char]
+    for start_char, end_char in zip(start_chars, end_chars)
+]
+
+## Try it out! Use the best scores you computed earlier to show the five most likely answers. To check your results, go back to the first pipeline and pass in top_k=5 when calling it.
+result = {
+    "answer": answers,
+    "start": start_chars,
+    "end": end_chars,
+    "score": [
+        scores[start_index, end_index]
+        for start_index, end_index in zip(start_indeces, end_indeces)
+    ],
+}
+print(result)
+# top 5:
+question_answerer(question=question, context=long_context, top_k=5)
+
+# there are more tokens in the input than the question answerer pipeline can handle
+inputs = tokenizer(question, long_context)
+print(len(inputs["input_ids"]))
+
+inputs = tokenizer(
+    question, long_context, max_length=384, truncation="only_second"
+)
+print(tokenizer.decode(inputs["input_ids"]))
+
+
+sentence = "This sentence is not too long but we are going to split it anyway."
+inputs = tokenizer(
+    sentence,
+    truncation=True,
+    return_overflowing_tokens=True,
+    max_length=6,
+    stride=2,
+)
+
+for ids in inputs["input_ids"]:
+    print(tokenizer.decode(ids))
+
+print(inputs.keys())
+print(inputs["overflow_to_sample_mapping"])
+
+sentences = [
+    "This sentence is not too long but we are going to split it anyway.",
+    "This sentence is shorter but will still get split.",
+]
+inputs = tokenizer(
+    sentences,
+    truncation=True,
+    return_overflowing_tokens=True,
+    max_length=6,
+    stride=2,
+)
+
+print(inputs["overflow_to_sample_mapping"])
+
+inputs = tokenizer(
+    question,
+    long_context,
+    stride=128,
+    max_length=384,
+    padding="longest",
+    truncation="only_second",
+    return_overflowing_tokens=True,
+    return_offsets_mapping=True,
+)
+
+_ = inputs.pop("overflow_to_sample_mapping")
+offsets = inputs.pop("offset_mapping")
+
+inputs = inputs.convert_to_tensors("pt")
+print(inputs["input_ids"].shape)
+
+outputs = model(**inputs)
+
+start_logits = outputs.start_logits
+end_logits = outputs.end_logits
+print(start_logits.shape, end_logits.shape)
+
+sequence_ids = inputs.sequence_ids()
+# Mask everything apart from the tokens of the context
+mask = [i != 1 for i in sequence_ids]
+# Unmask the [CLS] token
+mask[0] = False
+# Mask all the [PAD] tokens
+mask = torch.logical_or(
+    torch.tensor(mask)[None], (inputs["attention_mask"] == 0)
+)
+
+start_logits[mask] = -10000
+end_logits[mask] = -10000
+start_probabilities = torch.nn.functional.softmax(start_logits, dim=-1)
+end_probabilities = torch.nn.functional.softmax(end_logits, dim=-1)
+
+candidates = []
+for start_probs, end_probs in zip(start_probabilities, end_probabilities):
+    scores = start_probs[:, None] * end_probs[None, :]
+    idx = torch.triu(scores).argmax().item()
+
+    start_idx = idx // scores.shape[1]
+    end_idx = idx % scores.shape[1]
+    score = scores[start_idx, end_idx].item()
+    candidates.append((start_idx, end_idx, score))
+
+print(candidates)
+
+for candidate, offset in zip(candidates, offsets):
+    start_token, end_token, score = candidate
+    start_char, _ = offset[start_token]
+    _, end_char = offset[end_token]
+    answer = long_context[start_char:end_char]
+    result = {
+        "answer": answer,
+        "start": start_char,
+        "end": end_char,
+        "score": score,
+    }
+    print(result)
+
+
+# Normalization and pre-tokenization
+
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+print(type(tokenizer.backend_tokenizer))
+print(tokenizer.backend_tokenizer.normalizer.normalize_str("Héllò hôw are ü?"))
+##  Try it out! Load a tokenizer from the bert-base-cased checkpoint and pass the same example to it. What are the main differences you can see between the cased and uncased versions of the tokenizer?
+tokenizer2 = AutoTokenizer.from_pretrained("bert-base-cased")
+print(tokenizer2.backend_tokenizer.normalizer.normalize_str("Héllò hôw are ü?"))
+
+tokenizer.backend_tokenizer.pre_tokenizer.pre_tokenize_str(
+    "Hello, how are  you?"
+)
+
+
+# Byte-Pair Encoding tokenization
