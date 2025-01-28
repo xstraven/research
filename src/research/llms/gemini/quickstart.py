@@ -2,6 +2,7 @@ import vertexai
 from vertexai.generative_models import GenerativeModel
 import os
 import dotenv
+from llms.utils import llm_logging
 
 dotenv.load_dotenv()
 GCP_PROJECT = os.environ["GCP_PROJECT_ID"]
