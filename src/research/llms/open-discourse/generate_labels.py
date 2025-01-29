@@ -3,15 +3,32 @@ from pathlib import Path
 import pandas as pd
 from datasets import load_dataset, Dataset
 import instructor
+import asyncio, nest_asyncio
 import time
 import vertexai  # type: ignore
 from vertexai.generative_models import GenerativeModel  # type: ignore
 from pydantic import BaseModel, Field
 from typing import List
 import os
+from litellm.types.utils import ModelResponse
+from litellm import completion_cost
+from litellm import acompletion, completion
+from litellm import get_supported_openai_params
+
+nest_asyncio.apply()
 
 os.environ["HF_HOME"] = os.path.expanduser("~/.cache/huggingface")
 # Now import transformers, datasets, etc
+
+
+from langfuse import Langfuse
+
+langfuse = Langfuse(
+    secret_key="sk-lf-60799cc8-63cc-4797-9208-2987310d992e",
+    public_key="pk-lf-52844a24-0929-46a8-8489-df5824a0bf37",
+    host="https://cloud.langfuse.com",
+)
+
 
 # from vertexai.preview.tokenization import get_tokenizer_for_model
 
@@ -77,56 +94,107 @@ class TrainingQueriesQuestions(BaseModel):
     )
 
 
-client = instructor.from_vertexai(
-    client=GenerativeModel(f"{model_str}"),
-    mode=instructor.Mode.VERTEXAI_TOOLS,
-)
+# client = instructor.from_vertexai(
+#     client=GenerativeModel(f"{model_str}"),
+#     mode=instructor.Mode.VERTEXAI_TOOLS,
+# )
 
-speeches20_expl_sample = speeches20_expl.sample(100, random_state=42)
+speeches20_expl_sample = speeches20_expl.sample(1000, random_state=42)
 
 
-def get_training_queries(speech_snippet):
-    time.sleep(0.5)  # to avoid rate limiting
+params = get_supported_openai_params(model="gemini-1.5-flash")
+assert "response_format" in params
+
+
+async def async_get_training_queries(speech_snippet, semaphore):
+    async with semaphore:
+        await asyncio.sleep(5 * 60 / 100)  # rate limit is 100 per minute
+        try:
+            resp = await acompletion(
+                model="gemini-1.5-flash",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "You are a machine learning expert who assists in creating high value training data for a semantic search model. Your role is to analyse the document chunk given to you and provide us with high quality potential queries",
+                    },
+                    {
+                        "role": "user",
+                        "content": f"""
+                        Consider the following excerpt from a speech in the German Bundestag: {speech_snippet}
+                        To generate training data for a semantic search model, please provide two sets of search queries in German:
+                        1. Queries for which the provided context is a relevant search result.
+                        2. Queries for which the provided context is not a relevant search result.
+                        Make sure ALL queries make sense in the context of searching through parliamentary speeches.
+                """,
+                    },
+                ],
+                response_format=TrainingQueriesQuestions,
+            )
+        except Exception as e:
+            print(e)
+            resp = None
+        finally:
+            return resp
+
+
+async def process_tasks(tasks):
+    semaphore = asyncio.Semaphore(5)
+    return await asyncio.gather(
+        *[async_get_training_queries(task, semaphore) for task in tasks]
+    )
+
+
+import json
+
+responses = []
+for i in range(0, len(speeches20_expl_sample), 100):
+    print(f"Processing chunk {i}")
+    time.sleep(30)
+    test = asyncio.run(
+        process_tasks(speeches20_expl_sample.chunked_speech[i : i + 100])
+    )
+    responses.extend(test)
+response = responses[0]
+print(len(responses))
+completion_cost = completion_cost(response)
+
+
+for response in responses:
     try:
-        # note that client.chat.completions.create will also work
-        # idea: give more context around the speech snippet
-        resp = client.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": "You are a machine learning expert who assists in creating high value training data for a semantic search model. Your role is to analyse the document chunk given to you and provide us with high quality potential queries",
-                },
-                {
-                    "role": "user",
-                    "content": f"""
-                    Consider the following excerpt from a speech in the German Bundestag: {speech_snippet}
-                    To generate training data for a semantic search model, please provide two sets of search queries in German:
-                    1. Queries for which the provided context is a relevant search result.
-                    2. Queries for which the provided context is not a relevant search result.
-                    Make sure ALL queries make sense in the context of searching through parliamentary speeches.
-            """,
-                },
-            ],
-            response_model=TrainingQueriesQuestions,
-        )
+        json.loads(response.choices[0].message.content)
     except Exception as e:
         print(e)
-        resp = None
-    finally:
-        return resp
+        print(response.choices[0].message.content)
+        break
 
 
-# speeches20_expl_sample["training_queries"] = (
-#     speeches20_expl_sample.chunked_speech.apply(get_training_queries)
-# )
-# speeches20_expl_sample["training_queries_queries"] = speeches20_expl_sample[
-#     "training_queries"
-# ].apply(lambda x: x.dict()["queries"])
-# speeches20_expl_sample["training_queries_questions"] = speeches20_expl_sample[
-#     "training_queries"
-# ].apply(lambda x: x.dict()["questions"])
-# del speeches20_expl_sample["training_queries"]
-# speeches20_expl_sample.to_pickle("speeches20_expl_sample.pkl")
+def dump_model_from_response(response):
+    try:
+        return json.loads(response.choices[0].message.content)
+    except Exception as _:
+        return None
+
+
+speeches20_expl_sample["training_queries_response"] = responses
+speeches20_expl_sample["training_queries"] = speeches20_expl_sample[
+    "training_queries_response"
+].apply(dump_model_from_response)
+
+## check for None values
+speeches20_expl_sample["training_queries"].isna().sum()
+speeches20_expl_sample = speeches20_expl_sample.dropna(
+    subset=["training_queries"]
+)
+
+## unfold the training queries
+speeches20_expl_sample["training_queries_queries"] = speeches20_expl_sample[
+    "training_queries"
+].apply(lambda x: x["queries"])
+speeches20_expl_sample["training_queries_questions"] = speeches20_expl_sample[
+    "training_queries"
+].apply(lambda x: x["questions"])
+
+speeches20_expl_sample.to_pickle("speeches20_expl_sample.pkl")
 
 speeches20_expl_sample = pd.read_pickle("speeches20_expl_sample.pkl")
 speeches20_expl_sample.columns
@@ -155,10 +223,9 @@ meta_cols = [
     "date",
 ]
 df = df[keep_cols + meta_cols]
-
 speeches_queries_dataset = Dataset.from_pandas(df[keep_cols])
 # train - test - dev split
 speeches_queries_dataset = speeches_queries_dataset.train_test_split(
     test_size=0.4
 )
-speeches_queries_dataset.push_to_hub("parl-synthetic-queries")
+speeches_queries_dataset.push_to_hub("parl-synthetic-queries-v2")

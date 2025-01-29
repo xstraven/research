@@ -24,6 +24,11 @@ from sentence_transformers.evaluation import TripletEvaluator
 # )
 model = SentenceTransformer("chkla/parlbert-german-v1")
 
+# get python kernel location
+import sys
+
+print(sys.executable)
+
 
 # 3. Load a dataset to finetune on
 # dataset = load_dataset("sentence-transformers/all-nli", "triplet")
@@ -33,7 +38,7 @@ model = SentenceTransformer("chkla/parlbert-german-v1")
 
 # test_dataset[100]
 
-dataset = load_dataset("davhin/parl-synthetic-queries")
+dataset = load_dataset("davhin/parl-synthetic-queries-v2")
 dataset = dataset.remove_columns("__index_level_0__")
 train_dataset = dataset["train"]
 # split off 20% of the training data for evaluation
@@ -42,11 +47,13 @@ test_dataset = dataset["test"].train_test_split(test_size=0.5)["train"]
 
 # 4. Define a loss function
 loss = MultipleNegativesRankingLoss(model)
+import torch
 
+print(f"MPS device available: {torch.mps.is_available()}")
 # 5. (Optional) Specify training arguments
 args = SentenceTransformerTrainingArguments(
     # Required parameter:
-    output_dir="models/mpnet-base-all-nli-triplet",
+    output_dir="models/parlbert-german-search",
     # Optional training parameters:
     use_mps_device=True,
     num_train_epochs=1,
@@ -64,7 +71,7 @@ args = SentenceTransformerTrainingArguments(
     save_steps=100,
     save_total_limit=2,
     logging_steps=100,
-    run_name="mpnet-base-all-nli-triplet",  # Will be used in W&B if `wandb` is installed
+    run_name="parlbert-german-search-v0",  # Will be used in W&B if `wandb` is installed
 )
 
 # 6. (Optional) Create an evaluator & evaluate the base model
@@ -72,7 +79,7 @@ dev_evaluator = TripletEvaluator(
     anchors=eval_dataset["anchor"],
     positives=eval_dataset["positive"],
     negatives=eval_dataset["negative"],
-    name="all-nli-dev",
+    name="parlsearch-dev",
 )
 dev_evaluator(model)
 
@@ -92,12 +99,55 @@ test_evaluator = TripletEvaluator(
     anchors=test_dataset["anchor"],
     positives=test_dataset["positive"],
     negatives=test_dataset["negative"],
-    name="all-nli-test",
+    name="parlsearch-test",
 )
 test_evaluator(model)
 
-# # 8. Save the trained model
-# model.save_pretrained("models/mpnet-base-all-nli-triplet/final")
+model.save("models/parlbert-german-search/final")
 
-# # 9. (Optional) Push it to the Hugging Face Hub
+# 8. Save the trained model
+model.save_pretrained("models/parlbert-german-search/final")
+
+# 9. (Optional) Push it to the Hugging Face Hub
 # model.push_to_hub("mpnet-base-all-nli-triplet")
+
+
+## testing
+
+
+embedder = SentenceTransformer("models/parlbert-german-search/final")
+
+# Corpus with example sentences
+corpus = test_dataset["anchor"][:100]
+# Use "convert_to_tensor=True" to keep the tensors on GPU (if available)
+corpus_embeddings = embedder.encode(corpus, convert_to_tensor=True)
+
+queries = [
+    "Zahlen Arbeitslosigkeit Entwicklung",
+    "Wie viele Menschen sind arbeitslos?",
+]
+# queries_embeddings = embedder.encode(queries, convert_to_tensor=True)
+
+# Find the closest 5 sentences of the corpus for each query sentence based on cosine similarity
+top_k = min(3, len(corpus))
+for query in queries:
+    query_embedding = embedder.encode(query, convert_to_tensor=True)
+
+    # We use cosine-similarity and torch.topk to find the highest 5 scores
+    similarity_scores = embedder.similarity(query_embedding, corpus_embeddings)[
+        0
+    ]
+    scores, indices = torch.topk(similarity_scores, k=top_k)
+
+    print("\nQuery:", query)
+    print("Top 5 most similar sentences in corpus:")
+
+    for score, idx in zip(scores, indices):
+        print(corpus[idx], f"(Score: {score:.4f})")
+
+
+for i in range(10):
+    print(test_dataset["anchor"][i])
+    print(test_dataset["positive"][i])
+    print(test_dataset["negative"][i])
+    print("\n\n")
