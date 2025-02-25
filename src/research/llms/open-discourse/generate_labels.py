@@ -53,7 +53,7 @@ def instructor_parse(messages, response_model, model_name, **model_params):
 
 results = []
 i = 23
-for i in tqdm(range(100, 1000)):
+for i in tqdm(range(1000, len(speeches20_sample_exp["chunks"]))):
     content = speeches20_sample_exp["chunks"].values[i]
     time.sleep(0.5)
     messages = [

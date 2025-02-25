@@ -4,7 +4,6 @@ from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
-    SentenceTransformerModelCardData,
 )
 from sentence_transformers.losses import MultipleNegativesRankingLoss
 from sentence_transformers.training_args import BatchSamplers
@@ -26,8 +25,14 @@ model = SentenceTransformer("chkla/parlbert-german-v1")
 
 
 # 3. Load a dataset to finetune on
-dataset = load_dataset("davhin/parl-synthetic-queries-v2")
-dataset = dataset.remove_columns("__index_level_0__")
+dataset = load_dataset("davhin/parl-synthetic-queries-v3")
+dataset = dataset.remove_columns(
+    [
+        col
+        for col in dataset.column_names["train"]
+        if col not in ["anchor", "positive", "negative"]
+    ]
+)
 train_dataset = dataset["train"].train_test_split(test_size=0.25, seed=300)[
     "train"
 ]
@@ -56,12 +61,12 @@ args = SentenceTransformerTrainingArguments(
     batch_sampler=BatchSamplers.NO_DUPLICATES,  # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
     # Optional tracking/debugging parameters:
     eval_strategy="steps",
-    eval_steps=100,
+    eval_steps=50,
     save_strategy="steps",
-    save_steps=100,
+    save_steps=50,
     save_total_limit=2,
-    logging_steps=100,
-    run_name="parlbert-german-search-v0",  # Will be used in W&B if `wandb` is installed
+    logging_steps=50,
+    run_name="parlbert-german-search-v3",  # Will be used in W&B if `wandb` is installed
 )
 
 # 6. (Optional) Create an evaluator & evaluate the base model
@@ -94,7 +99,7 @@ test_evaluator = TripletEvaluator(
 print(test_evaluator(model))
 
 # 8. Save the trained model
-model.save_pretrained("models/parlbert-german-search-v0")
+model.save_pretrained("models/parlbert-german-search-v3")
 
 # 9. (Optional) Push it to the Hugging Face Hub
-model.push_to_hub("parlbert-german-search-v0")
+model.push_to_hub("parlbert-german-search-v3")
