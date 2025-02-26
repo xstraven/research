@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 # Load data
 speeches20 = pd.read_pickle("~/projects/research/data/od_speeches20.pkl")
-speeches20_sample = speeches20.sample(1000, random_state=42)
+speeches20_sample = speeches20.sample(3000, random_state=42)
 
 # split text
 embedding_model = "distilbert-base-german-cased"
@@ -28,6 +28,7 @@ speeches20_sample["chunks"] = speeches20_sample["chunks"].apply(
     lambda x: x[1:-1]
 )
 speeches20_sample_exp = speeches20_sample.explode("chunks")
+speeches20_sample_exp.dropna(subset=["chunks"], inplace=True)
 speeches20_sample_exp.shape
 # params = get_supported_openai_params(model=model_str)
 # assert "response_format" in params
@@ -45,7 +46,7 @@ class SemanticQuery(BaseModel):
 )  # second wrapper so the output shows up in the trace obj on langfuse (and not just the generation)
 def instructor_parse(messages, response_model, model_name, **model_params):
     # do some more setup
-    langfuse_context.update_current_trace(session_id="first_run")
+    langfuse_context.update_current_trace(session_id="second_run")
     return instructor_parse_w_vertex(
         messages, response_model, model_name, **model_params
     )
@@ -53,44 +54,51 @@ def instructor_parse(messages, response_model, model_name, **model_params):
 
 results = []
 i = 23
-for i in tqdm(range(1000, len(speeches20_sample_exp["chunks"]))):
-    content = speeches20_sample_exp["chunks"].values[i]
+for i in tqdm(range(7826, len(speeches20_sample_exp["chunks"]))):
     time.sleep(0.5)
-    messages = [
-        # {
-        #     "role": "user",
-        #     "content": "You are a machine learning expert who assists in creating high value training data for a semantic search model. Your role is to analyse the document chunk given to you and provide us with high quality potential queries",
-        # },
-        {
-            "role": "user",
-            "content": f"""
-                            Take the following German text excerpt from a speech in the German parliament:
-                            
-                            {content}
+    try:
+        content = speeches20_sample_exp["chunks"].values[i]
+        messages = [
+            # {
+            #     "role": "user",
+            #     "content": "You are a machine learning expert who assists in creating high value training data for a semantic search model. Your role is to analyse the document chunk given to you and provide us with high quality potential queries",
+            # },
+            {
+                "role": "user",
+                "content": f"""
+                                Take the following German text excerpt from a speech in the German parliament:
+                                
+                                {content}
 
-                            Generate a list of German search queries for which the excerpt is a high-value answer. Focus on the essential points of the excerpt. Limit yourself to 3-5 words for the query and generate 1-3 differentiated queries.""",
-        },
-    ]
+                                Generate a list of German search queries for which the excerpt is a high-value answer. Focus on the essential points of the excerpt. Limit yourself to 3-5 words for the query and generate 1-3 differentiated queries.""",
+            },
+        ]
 
-    resp = instructor_parse(messages, SemanticQuery, "gemini-2.0-flash-001")
-    # print(content, resp)
-    results.append(resp)
+        resp = instructor_parse(messages, SemanticQuery, "gemini-2.0-flash-001")
+        # print(content, resp)
+        results.append(resp)
+    except Exception as e:
+        print(i)
+        print(e)
+        break
+
 
 len(results)
-speeches20_sample_exp_1k = speeches20_sample_exp.iloc[:1000].copy()
-speeches20_sample_exp_1k["queries"] = results
-speeches20_sample_exp_1k.dropna(subset=["chunks"], inplace=True)
-speeches20_sample_exp_1k["queries"] = speeches20_sample_exp_1k["queries"].apply(
+# speeches20_sample_exp = speeches20_sample_exp.iloc[:1000].copy()
+speeches20_sample_exp["queries"] = results
+# speeches20_sample_exp.dropna(subset=["chunks"]).shape
+speeches20_sample_exp["queries"] = speeches20_sample_exp["queries"].apply(
     lambda x: x.queries
 )
-speeches20_sample_exp_1k = speeches20_sample_exp_1k.explode("queries")
+speeches20_sample_exp = speeches20_sample_exp.explode("queries")
 
 
-speeches20_sample_exp_1k.to_pickle("speeches20_expl_sample.pkl")
+speeches20_sample_exp.to_pickle("speeches20_expl_sample.pkl")
 
 df = pd.read_pickle("speeches20_expl_sample.pkl")
+df.shape
 df.rename(columns={"chunks": "anchor", "queries": "positive"}, inplace=True)
-df = df.explode("positive")
+# df = df.explode("positive")
 df = df.sample(frac=1, random_state=42)
 df["negative"] = df["positive"].shift(1)
 df = df.dropna(subset=["negative"])
