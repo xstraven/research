@@ -99,6 +99,7 @@ df = pd.read_pickle("speeches20_expl_sample.pkl")
 df.shape
 df.rename(columns={"chunks": "anchor", "queries": "positive"}, inplace=True)
 # df = df.explode("positive")
+
 df = df.sample(frac=1, random_state=42)
 df["negative"] = df["positive"].shift(1)
 df = df.dropna(subset=["negative"])
