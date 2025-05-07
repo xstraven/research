@@ -170,3 +170,4 @@ models/
 .cache/
 .huggingface/
 *.pkl
+*.wav
