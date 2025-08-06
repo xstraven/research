@@ -24,15 +24,12 @@ dependencies = [
     "requests>=2.32.3",
     "semantic-text-splitter>=0.24.1",
     "sentence-transformers>=3.3.1",
-    "sentencepiece>=0.2.0",
     "smolagents[gradio,litellm]>=1.13.0",
     "sounddevice>=0.5.1",
     "torch>=2.5.1",
     "torchvision>=0.20.1",
     "transformers>=4.48.0",
 ]
-[project.scripts]
-research = "research:main"
 
 [build-system]
 requires = ["hatchling"]
