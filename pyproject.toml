@@ -17,6 +17,7 @@ dependencies = [
     "modal>=1.2.1",
     "openai-agents[voice]>=0.4.2",
     "pandas>=2.3.3",
+    "polars>=1.35.1",
     "pyaudio>=0.2.14",
     "pydantic>=2.12.3",
     "python-dotenv>=1.2.1",
