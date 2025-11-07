@@ -171,3 +171,9 @@ models/
 .huggingface/
 *.pkl
 *.wav
+
+# 
+data/*
+data/logs/*
+!data/.gitkeep
+!data/logs/.gitkeep
