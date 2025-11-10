@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from typing import List
 from semantic_text_splitter import TextSplitter
 from tokenizers import Tokenizer
-from research.llms.gemini.instructor_langfuse import instructor_parse_w_vertex
+from research.playground.gemini.instructor_langfuse import instructor_parse_w_vertex
 from langfuse.decorators import langfuse_context, observe
 from tqdm import tqdm
 
