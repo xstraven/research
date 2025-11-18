@@ -3012,7 +3012,7 @@ wheels = [
 [[package]]
 name = "research"
 version = "0.99"
-source = { editable = "." }
+source = { virtual = "." }
 dependencies = [
     { name = "accelerate" },
     { name = "datasets" },
@@ -3035,6 +3035,7 @@ dependencies = [
     { name = "sentence-transformers" },
     { name = "smolagents", extra = ["gradio", "litellm"] },
     { name = "sounddevice" },
+    { name = "sympy" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "transformers" },
@@ -3063,6 +3064,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=5.1.2" },
     { name = "smolagents", extras = ["gradio", "litellm"], specifier = ">=1.22.0" },
     { name = "sounddevice", specifier = ">=0.5.3" },
+    { name = "sympy", specifier = ">=1.14.0" },
     { name = "torch", specifier = ">=2.9.0" },
     { name = "torchvision", specifier = ">=0.24.0" },
     { name = "transformers", specifier = ">=4.57.1" },
