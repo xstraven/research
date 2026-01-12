@@ -1,0 +1,28 @@
+[project]
+name = "research-playground"
+version = "0.1.0"
+description = "Playground experiments for research"
+requires-python = ">=3.13"
+dependencies = [
+    "google-cloud-aiplatform>=1.123.0",
+    "langfuse>=3.8.1",
+    "litellm>=1.79.0",
+    "modal>=1.2.1",
+    "openai-agents[voice]>=0.4.2",
+    "pyaudio>=0.2.14",
+    "pydantic>=2.12.3",
+    "python-dotenv>=1.2.1",
+    "requests>=2.32.5",
+    "sounddevice>=0.5.3",
+    "transformers>=4.57.1",
+    "torch>=2.9.0",
+    "datasets>=4.3.0",
+    "sentence-transformers>=5.1.2",
+    "smolagents[gradio,litellm]>=1.22.0",
+    "semantic-text-splitter>=0.28.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
