@@ -23,3 +23,6 @@ dependencies = [
 dev = [
     "pytest>=9.0.2",
 ]
+
+[tool.uv.workspace]
+members = ["connect4"]
