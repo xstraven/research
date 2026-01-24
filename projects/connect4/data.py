@@ -26,13 +26,9 @@ def save_games_parquet(path: Path, games: list[Game]) -> None:
     df.write_parquet(path)
 
 
-def _load_games_parquet(path: Path) -> pl.DataFrame:
-    df = pl.read_parquet(path)
-    return df
-
-
-def load_games_parquet(path: Path) -> list[Game]:
-    df = pl.read_parquet(path)
+def load_games_parquet(name: str) -> list[Game]:
+    path = DATA_FOLDER / name
+    df = pl.read_parquet(path.with_suffix(".parquet"))
     games: list[Game] = []
     for row in df.iter_rows(named=True):
         game = Game.empty()
@@ -49,6 +45,7 @@ def save_metadata_json(path: Path, metadata: dict) -> None:
         json.dump(metadata, file, indent=2, sort_keys=True)
 
 
-def load_metadata_json(path: Path) -> dict:
-    with path.open("r", encoding="utf-8") as file:
+def load_metadata_json(name: str) -> dict:
+    path = DATA_FOLDER / name
+    with path.with_suffix(".json").open("r", encoding="utf-8") as file:
         return json.load(file)

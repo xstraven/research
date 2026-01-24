@@ -26,7 +26,7 @@ class Experiment:
             strat.play_game(game)
             self.games.append(game)
 
-        print(f"Time: {time.time() - t1:.2f}s")
+        print(f"Time: {time.time() - t1:.2f}s for {n_games} games.")
 
     def save(self, name: str) -> None:
         date = dt.now().strftime(format="%Y%m%d_%H:%M")
@@ -44,9 +44,8 @@ class Experiment:
 
     @classmethod
     def load(cls, name: str, policy: Policy) -> Experiment:
-        base_path = DATA_FOLDER / name
-        games = load_games_parquet(base_path.with_suffix(".parquet"))
-        metadata = load_metadata_json(base_path.with_suffix(".json"))
+        games = load_games_parquet(name)
+        metadata = load_metadata_json(name)
         instance = cls(
             metadata.get("n_games", len(games)), policy, metadata.get("rseed")
         )
@@ -87,6 +86,7 @@ def main():
     #     f"random_100k_{dt.datetime.now().strftime(format="%Y-%m-%d_%H:%M")}"
     # )
     # games.save(name=games_save)
+    # first_random_20260124_21:14
 
 
 if __name__ == "__main__":
