@@ -1,5 +1,5 @@
 from __future__ import annotations
-from sim_games import RandomStrat, Game, Policy
+from games import RandomStrat, Game, Policy
 from typing import List
 from datetime import datetime as dt
 from data import (
@@ -22,7 +22,7 @@ class Experiment:
         t1 = time.time()
         strat = self.policy
         for i in range(n_games):
-            game = Game.empty()
+            game = Game()
             strat.play_game(game)
             self.games.append(game)
 

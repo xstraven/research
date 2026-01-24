@@ -2,36 +2,44 @@ from __future__ import annotations
 from typing import List
 import random
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+def get_empty_board() -> List[List]:
+    return [
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 0],
+    ]
 
 
 @dataclass
 class Game:
-    states: List
-    moves: List
-    legal_moves: dict
-    winner: int
+    board: List = field(default_factory=get_empty_board)
+    moves: List = field(default_factory=list)
+    winner: int = 0
 
-    @classmethod
-    def empty(cls) -> Game:
-        board = get_empty_game()
-        moves = []
-        winner = 0
-        legal_moves = {col: 5 for col in range(7)}
-        return cls(
-            states=board, moves=moves, winner=winner, legal_moves=legal_moves
-        )
+    @property
+    def legal_moves(self) -> dict:
+        """Returns {col: lowest_empty_row} for columns that aren't full."""
+        result = {}
+        for col in range(7):
+            for row in range(5, -1, -1):  # bottom to top
+                if self.board[row][col] == 0:
+                    result[col] = row
+                    break
+        return result
 
     def apply_move(self, y, val) -> None:
         x = self.legal_moves[y]
-        self.states[x][y] = val
+        self.board[x][y] = val
         self.moves.append([val, x, y])
-        self.legal_moves[y] -= 1
-        if self.legal_moves[y] <= 0:
-            del self.legal_moves[y]
 
     def has_winner(self) -> bool:
-        board_state = self.states
+        board_state = self.board
         _, x, y = self.moves[-1]
         val = board_state[x][y]
 
@@ -77,17 +85,6 @@ class Game:
                     return True
 
         return False
-
-
-def get_empty_game() -> List[List]:
-    return [
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0],
-    ]
 
 
 class Policy(ABC):
