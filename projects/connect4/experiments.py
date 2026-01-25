@@ -1,8 +1,9 @@
 from __future__ import annotations
-from games import RandomStrat, Game, Policy
+from games import RandomStrat, Game, Policy, get_empty_board
+from copy import deepcopy
 from typing import List
 from datetime import datetime as dt
-from data import (
+from utils import (
     DATA_FOLDER,
     load_games_parquet,
     load_metadata_json,
@@ -14,9 +15,18 @@ import time
 
 
 @dataclass
+class Transition:
+    boards: List
+    player: int
+    action: int
+    dc_return: int
+
+
+@dataclass
 class Experiment:
     policy: Policy
-    games: list[Game] = field(default_factory=list, init=False)
+    games: List[Game] = field(default_factory=list, init=False)
+    samples: List[Transition] = field(default_factory=list, init=False)
 
     def play(self, n_games) -> None:
         t1 = time.time()
@@ -75,19 +85,41 @@ class Experiment:
         print(f"{1-p1_pwin - p2_pwin:.2%} games ended in a draw.")
         return [p1_pwin, p2_pwin, 1 - p1_pwin - p2_pwin]
 
+    def build_features(self, reward=1, gamma=0.95):
+        for game in self.games:
+            boards = [get_empty_board(), get_empty_board()]
+            player1 = game.moves[0][0]
+            player2 = game.moves[1][0]
+            dc_return = reward * (gamma ** (len(game.moves) - 1))
+            if game.winner == 0:
+                dc_return = 0
+            if game.winner == player2:
+                dc_return = -dc_return
+            for move in game.moves:
+                player = move[0]
+                x, y = move[1], move[2]
+                player_return = dc_return if player == player1 else -dc_return
+                player_boards = (
+                    deepcopy(boards)
+                    if player == player1
+                    else deepcopy(boards[::-1])
+                )
+                player_boards[1] = [
+                    [-cell for cell in row] for row in player_boards[1]
+                ]
+                t = Transition(
+                    boards=player_boards,
+                    player=player,
+                    action=y,
+                    dc_return=player_return,
+                )
+                self.samples.append(t)
+                boards[0 if player == player1 else 1][x][y] = 1
+                dc_return = dc_return / gamma
+
 
 def main():
     exp01 = Experiment(RandomStrat(42))
-    exp01.play(100000)
+    exp01.play(10000)
     _ = exp01.win_rate
     exp01.save("first_random")
-
-    # games_save = (
-    #     f"random_100k_{dt.datetime.now().strftime(format="%Y-%m-%d_%H:%M")}"
-    # )
-    # games.save(name=games_save)
-    # first_random_20260124_21:14
-
-
-if __name__ == "__main__":
-    main()
