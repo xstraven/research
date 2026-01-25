@@ -105,7 +105,7 @@ class Experiment:
                     else deepcopy(boards[::-1])
                 )
                 player_boards[1] = [
-                    [-cell for cell in row] for row in player_boards[1]
+                    [min(1, cell) for cell in row] for row in player_boards[1]
                 ]
                 t = Transition(
                     boards=player_boards,
