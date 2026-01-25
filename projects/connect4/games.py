@@ -1,8 +1,13 @@
 from __future__ import annotations
-from typing import List
+from typing import List, Optional, TYPE_CHECKING
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+
+import torch
+
+if TYPE_CHECKING:
+    from training import Connect4Net
 
 
 def get_empty_board() -> List[List]:
@@ -115,3 +120,63 @@ class RandomStrat(Policy):
 
     def config(self) -> dict:
         return {"seed": self.seed}
+
+
+class LearnedPolicy(Policy):
+    """Policy that uses a trained neural network to select moves."""
+
+    def __init__(
+        self,
+        model: Connect4Net,
+        temperature: float = 1.0,
+        device: str = "mps",
+    ):
+        self.model = model
+        self.temperature = temperature
+        self.device = device
+        self.model.to(device)
+        self.model.eval()
+
+    def _board_to_tensor(self, game: Game, player: int) -> torch.Tensor:
+        """Convert game state to model input tensor (2 channels: player, opponent)."""
+        board = game.board
+        player_board = [[0] * 7 for _ in range(6)]
+        opponent_board = [[0] * 7 for _ in range(6)]
+
+        for row in range(6):
+            for col in range(7):
+                if board[row][col] == player:
+                    player_board[row][col] = 1
+                elif board[row][col] != 0:
+                    opponent_board[row][col] = 1
+
+        tensor = torch.tensor(
+            [player_board, opponent_board], dtype=torch.float32
+        ).unsqueeze(0)
+        return tensor.to(self.device)
+
+    def choose_move(self, game: Game, player: int) -> int:
+        legal = list(game.legal_moves.keys())
+
+        with torch.no_grad():
+            board_tensor = self._board_to_tensor(game, player)
+            logits = self.model(board_tensor).squeeze(0)
+
+            # Mask illegal moves with large negative value
+            mask = torch.full((7,), float("-inf"), device=self.device)
+            for col in legal:
+                mask[col] = 0
+            masked_logits = logits + mask
+
+            if self.temperature == 0:
+                # Greedy selection
+                action = masked_logits.argmax().item()
+            else:
+                # Sample from softmax distribution
+                probs = torch.softmax(masked_logits / self.temperature, dim=-1)
+                action = torch.multinomial(probs, 1).item()
+
+        return action
+
+    def config(self) -> dict:
+        return {"temperature": self.temperature, "device": self.device}
