@@ -1,3 +1,4 @@
+import logging
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -9,6 +10,18 @@ import json
 from experiments import Experiment, Transition
 from games import RandomStrat, LearnedPolicy, Game
 from utils import MODELS_FOLDER
+
+# Set up logger for training diagnostics
+logger = logging.getLogger(__name__)
+
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure logging for training. Call with logging.DEBUG for verbose diagnostics."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
 
 class TransitionDataset:
@@ -70,10 +83,10 @@ class Trainer:
         has_inf = False
         for name, param in self.model.named_parameters():
             if torch.isnan(param).any():
-                print(f"  [ERROR] {prefix} NaN in parameter: {name}")
+                logger.error("%s NaN in parameter: %s", prefix, name)
                 has_nan = True
             if torch.isinf(param).any():
-                print(f"  [ERROR] {prefix} Inf in parameter: {name}")
+                logger.error("%s Inf in parameter: %s", prefix, name)
                 has_inf = True
             stats[name] = {
                 "mean": param.data.abs().mean().item(),
@@ -103,10 +116,12 @@ class Trainer:
 
             # Diagnostics: raw returns before normalization
             if n_batches == 0:
-                print(
-                    f"  [Diag] Raw returns - mean: {returns.mean().item():.4f}, "
-                    f"std: {returns.std().item():.4f}, "
-                    f"range: [{returns.min().item():.4f}, {returns.max().item():.4f}]"
+                logger.debug(
+                    "Raw returns - mean: %.4f, std: %.4f, range: [%.4f, %.4f]",
+                    returns.mean().item(),
+                    returns.std().item(),
+                    returns.min().item(),
+                    returns.max().item(),
                 )
 
             returns = (returns - returns.mean()) / (returns.std() + 1e-8)
@@ -126,21 +141,23 @@ class Trainer:
             if torch.isnan(logits).any():
                 epoch_stats["nan_batches"] += 1
                 if epoch_stats["nan_batches"] == 1:
-                    print(
-                        f"  [WARN] NaN detected in logits at batch {n_batches}!"
+                    logger.warning(
+                        "NaN detected in logits at batch %d!", n_batches
                     )
             if torch.isinf(logits).any():
                 epoch_stats["inf_batches"] += 1
                 if epoch_stats["inf_batches"] == 1:
-                    print(
-                        f"  [WARN] Inf detected in logits at batch {n_batches}!"
+                    logger.warning(
+                        "Inf detected in logits at batch %d!", n_batches
                     )
 
             if n_batches == 0:
-                print(
-                    f"  [Diag] Logits - mean: {logits.mean().item():.4f}, "
-                    f"std: {logits.std().item():.4f}, "
-                    f"range: [{logits.min().item():.4f}, {logits.max().item():.4f}]"
+                logger.debug(
+                    "Logits - mean: %.4f, std: %.4f, range: [%.4f, %.4f]",
+                    logits.mean().item(),
+                    logits.std().item(),
+                    logits.min().item(),
+                    logits.max().item(),
                 )
 
             # REINFORCE: -log(π(a|s)) * R
@@ -158,19 +175,22 @@ class Trainer:
 
             # Diagnostics: log probs and policy entropy
             if n_batches == 0:
-                print(
-                    f"  [Diag] Action log_probs - mean: {action_log_probs.mean().item():.4f}, "
-                    f"range: [{action_log_probs.min().item():.4f}, {action_log_probs.max().item():.4f}]"
+                logger.debug(
+                    "Action log_probs - mean: %.4f, range: [%.4f, %.4f]",
+                    action_log_probs.mean().item(),
+                    action_log_probs.min().item(),
+                    action_log_probs.max().item(),
                 )
-                print(
-                    f"  [Diag] Normalized returns - mean: {returns.mean().item():.4f}, "
-                    f"std: {returns.std().item():.4f}"
+                logger.debug(
+                    "Normalized returns - mean: %.4f, std: %.4f",
+                    returns.mean().item(),
+                    returns.std().item(),
                 )
-                print(f"  [Diag] Policy entropy: {entropy.item():.4f}")
+                logger.debug("Policy entropy: %.4f", entropy.item())
                 # Check for policy collapse (entropy near 0 means deterministic)
                 if entropy.item() < 0.1:
-                    print(
-                        "  [WARN] Very low entropy - policy may be collapsing!"
+                    logger.warning(
+                        "Very low entropy - policy may be collapsing!"
                     )
 
             loss = -(action_log_probs * returns).mean()
@@ -178,15 +198,17 @@ class Trainer:
             # Diagnostics: loss components
             if n_batches == 0:
                 loss_components = action_log_probs * returns
-                print(
-                    f"  [Diag] Loss components (log_p * R) - mean: {loss_components.mean().item():.4f}, "
-                    f"range: [{loss_components.min().item():.4f}, {loss_components.max().item():.4f}]"
+                logger.debug(
+                    "Loss components (log_p * R) - mean: %.4f, range: [%.4f, %.4f]",
+                    loss_components.mean().item(),
+                    loss_components.min().item(),
+                    loss_components.max().item(),
                 )
-                print(f"  [Diag] Loss value: {loss.item():.4f}")
+                logger.debug("Loss value: %.4f", loss.item())
 
             # Check for NaN loss before backward
             if torch.isnan(loss):
-                print(f"  [ERROR] NaN loss at batch {n_batches}!")
+                logger.error("NaN loss at batch %d!", n_batches)
                 continue
 
             loss.backward()
@@ -203,10 +225,12 @@ class Trainer:
 
             # Diagnostics: gradient norms before clipping
             if n_batches == 0:
-                print(f"  [Diag] Gradient norm (pre-clip): {total_norm:.4f}")
+                logger.debug("Gradient norm (pre-clip): %.4f", total_norm)
             elif total_norm > 10.0:  # Alert on large gradients
-                print(
-                    f"  [WARN] Large gradient norm at batch {n_batches}: {total_norm:.4f}"
+                logger.warning(
+                    "Large gradient norm at batch %d: %.4f",
+                    n_batches,
+                    total_norm,
                 )
 
             torch.nn.utils.clip_grad_norm_(
@@ -220,9 +244,7 @@ class Trainer:
                     if p.grad is not None:
                         total_norm_post += p.grad.data.norm(2).item() ** 2
                 total_norm_post = total_norm_post**0.5
-                print(
-                    f"  [Diag] Gradient norm (post-clip): {total_norm_post:.4f}"
-                )
+                logger.debug("Gradient norm (post-clip): %.4f", total_norm_post)
 
             self.optimizer.step()
 
@@ -231,22 +253,27 @@ class Trainer:
 
         # Epoch summary diagnostics
         avg_loss = total_loss / n_batches
-        print(
-            f"  [Epoch Summary] Logit range: [{epoch_stats['min_logit']:.2f}, {epoch_stats['max_logit']:.2f}]"
+        logger.debug(
+            "Epoch summary - Logit range: [%.2f, %.2f]",
+            epoch_stats["min_logit"],
+            epoch_stats["max_logit"],
         )
-        print(
-            f"  [Epoch Summary] Max gradient norm: {epoch_stats['max_grad_norm']:.4f}"
+        logger.debug(
+            "Epoch summary - Max gradient norm: %.4f",
+            epoch_stats["max_grad_norm"],
         )
-        print(
-            f"  [Epoch Summary] Min entropy: {epoch_stats['min_entropy']:.4f}"
+        logger.debug(
+            "Epoch summary - Min entropy: %.4f", epoch_stats["min_entropy"]
         )
         if epoch_stats["nan_batches"] > 0:
-            print(
-                f"  [Epoch Summary] Batches with NaN: {epoch_stats['nan_batches']}"
+            logger.warning(
+                "Epoch summary - Batches with NaN: %d",
+                epoch_stats["nan_batches"],
             )
         if epoch_stats["inf_batches"] > 0:
-            print(
-                f"  [Epoch Summary] Batches with Inf: {epoch_stats['inf_batches']}"
+            logger.warning(
+                "Epoch summary - Batches with Inf: %d",
+                epoch_stats["inf_batches"],
             )
 
         # Check model health at end of epoch
@@ -254,18 +281,16 @@ class Trainer:
             "End of epoch:"
         )
         if has_nan or has_inf:
-            print(
-                "  [ERROR] Model has NaN/Inf weights - training has diverged!"
-            )
+            logger.error("Model has NaN/Inf weights - training has diverged!")
 
         # Report largest weight magnitudes (potential explosion)
         max_weight_layers = sorted(
             weight_stats.items(), key=lambda x: x[1]["max"], reverse=True
         )[:3]
-        print("  [Epoch Summary] Largest weight magnitudes:")
+        logger.debug("Epoch summary - Largest weight magnitudes:")
         for name, stats in max_weight_layers:
-            print(
-                f"      {name}: max={stats['max']:.4f}, mean={stats['mean']:.6f}"
+            logger.debug(
+                "    %s: max=%.4f, mean=%.6f", name, stats["max"], stats["mean"]
             )
 
         return avg_loss
@@ -284,42 +309,48 @@ class Trainer:
         run_dir.mkdir(parents=True, exist_ok=True)
 
         # Pre-training diagnostics: analyze dataset
-        print("\n" + "=" * 60)
-        print("PRE-TRAINING DIAGNOSTICS")
-        print("=" * 60)
         all_returns = torch.tensor([s.dc_return for s in dataset.samples])
-        print(f"Dataset size: {len(dataset)}")
-        print("Returns distribution:")
-        print(f"  Mean: {all_returns.mean().item():.4f}")
-        print(f"  Std:  {all_returns.std().item():.4f}")
-        print(f"  Min:  {all_returns.min().item():.4f}")
-        print(f"  Max:  {all_returns.max().item():.4f}")
+        logger.debug("=" * 60)
+        logger.debug("PRE-TRAINING DIAGNOSTICS")
+        logger.debug("Dataset size: %d", len(dataset))
+        logger.debug(
+            "Returns distribution - Mean: %.4f, Std: %.4f, Min: %.4f, Max: %.4f",
+            all_returns.mean().item(),
+            all_returns.std().item(),
+            all_returns.min().item(),
+            all_returns.max().item(),
+        )
         # Check for extreme returns that could cause issues
         extreme_threshold = 10.0
         extreme_count = (all_returns.abs() > extreme_threshold).sum().item()
         if extreme_count > 0:
-            print(
-                f"  [WARN] {extreme_count} samples have |return| > {extreme_threshold}"
+            logger.warning(
+                "%d samples have |return| > %.1f",
+                extreme_count,
+                extreme_threshold,
             )
         # Check return balance
         pos_returns = (all_returns > 0).sum().item()
         neg_returns = (all_returns < 0).sum().item()
         zero_returns = (all_returns == 0).sum().item()
-        print(
-            f"  Positive: {pos_returns}, Negative: {neg_returns}, Zero: {zero_returns}"
+        logger.debug(
+            "Returns balance - Positive: %d, Negative: %d, Zero: %d",
+            pos_returns,
+            neg_returns,
+            zero_returns,
         )
 
         # Check initial model health
-        print("\nInitial model state:")
+        logger.debug("Initial model state:")
         self._check_model_health("Initial:")
-        print("=" * 60 + "\n")
+        logger.debug("=" * 60)
 
         for epoch in range(1, epochs + 1):
             loss = self.train_epoch(dataloader)
             self.history["loss"].append(loss)
             self.history["epoch"].append(epoch)
 
-            print(f"Epoch {epoch:3d} | Loss: {loss:.4f}")
+            logger.info("Epoch %3d | Loss: %.4f", epoch, loss)
 
             if epoch % save_every == 0:
                 self.save_checkpoint(run_dir, epoch)
@@ -340,7 +371,7 @@ class Trainer:
             },
             path,
         )
-        print(f"  Saved: {path}")
+        logger.info("Saved: %s", path)
 
     def load_checkpoint(self, path: Path):
         checkpoint = torch.load(path, map_location=self.device)
@@ -433,10 +464,10 @@ def self_play_train(
         "samples_per_round": [],
     }
 
-    print(f"\n{'=' * 60}")
-    print(f"SELF-PLAY TRAINING: {run_name}")
-    print(f"Rounds: {rounds}, Games/round: {games_per_round}")
-    print(f"{'=' * 60}\n")
+    logger.info("=" * 60)
+    logger.info("SELF-PLAY TRAINING: %s", run_name)
+    logger.info("Rounds: %d, Games/round: %d", rounds, games_per_round)
+    logger.info("=" * 60)
 
     for round_idx in range(1, rounds + 1):
         # Generate data with current policy
@@ -454,8 +485,13 @@ def self_play_train(
         p1_wins = sum(1 for g in exp.games if g.winner == 1)
         p2_wins = sum(1 for g in exp.games if g.winner == 2)
         draws = sum(1 for g in exp.games if g.winner == 0)
-        print(
-            f"Round {round_idx:3d} | Self-play: P1={p1_wins}, P2={p2_wins}, Draw={draws} | Samples: {n_samples}"
+        logger.info(
+            "Round %3d | Self-play: P1=%d, P2=%d, Draw=%d | Samples: %d",
+            round_idx,
+            p1_wins,
+            p2_wins,
+            draws,
+            n_samples,
         )
 
         # Train on fresh data
@@ -468,7 +504,7 @@ def self_play_train(
         history["round"].append(round_idx)
         history["loss"].append(loss)
 
-        print(f"           | Loss: {loss:.4f}")
+        logger.info("          | Loss: %.4f", loss)
 
         # Evaluate periodically
         if round_idx % eval_every == 0:
@@ -476,9 +512,11 @@ def self_play_train(
                 model, n_games=eval_games, device=trainer.device
             )
             history["win_rate_vs_random"].append(eval_results["win_rate"])
-            print(
-                f"           | vs Random: {eval_results['win_rate']:.1%} win, "
-                f"{eval_results['loss_rate']:.1%} loss, {eval_results['draw_rate']:.1%} draw"
+            logger.info(
+                "          | vs Random: %.1f%% win, %.1f%% loss, %.1f%% draw",
+                eval_results["win_rate"] * 100,
+                eval_results["loss_rate"] * 100,
+                eval_results["draw_rate"] * 100,
             )
         else:
             history["win_rate_vs_random"].append(None)
@@ -492,28 +530,34 @@ def self_play_train(
     with open(run_dir / "selfplay_history.json", "w") as f:
         json.dump(history, f, indent=2)
 
-    print(f"\n{'=' * 60}")
-    print("Training complete!")
+    logger.info("=" * 60)
+    logger.info("Training complete!")
     final_eval = evaluate_vs_random(model, n_games=200, device=trainer.device)
-    print(f"Final vs Random (200 games): {final_eval['win_rate']:.1%} win rate")
-    print(f"{'=' * 60}\n")
+    logger.info(
+        "Final vs Random (200 games): %.1f%% win rate",
+        final_eval["win_rate"] * 100,
+    )
+    logger.info("=" * 60)
 
     return history
 
 
 def main():
+    # Set to logging.DEBUG to enable verbose diagnostics
+    setup_logging(logging.INFO)
+
     device = "mps" if torch.backends.mps.is_available() else "cpu"
-    print(f"Using device: {device}")
+    logger.info("Using device: %s", device)
 
     model = Connect4Net()
     trainer = Trainer(model, lr=1e-4, device=device)
 
     # Self-play training
-    self_play_train(
+    h = self_play_train(
         model=model,
         trainer=trainer,
         rounds=10,
-        games_per_round=100,
+        games_per_round=1000,
         epochs_per_round=1,
         batch_size=64,
         temperature=1.0,
