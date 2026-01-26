@@ -38,6 +38,13 @@ class Game:
                     break
         return result
 
+    def __hash__(self):
+        pre_hash = "".join([str(col) for row in self.board for col in row])
+        return hash(pre_hash)
+
+    def __eq__(self, other):
+        return isinstance(other, Game) and self.__hash__() == other.__hash__()
+
     def apply_move(self, y, val) -> None:
         x = self.legal_moves[y]
         self.board[x][y] = val
@@ -90,6 +97,47 @@ class Game:
                     return True
 
         return False
+
+    def count_three_series(self) -> dict:
+        """
+        Count 3-in-a-row series (almost wins) for each player.
+
+        A 3-series is 3 pieces of the same color in a 4-cell window,
+        with the 4th cell empty. Includes unachievable positions.
+
+        Returns:
+            dict: {1: count_player1, 2: count_player2}
+        """
+        counts = {1: 0, 2: 0}
+        board = self.board
+
+        def check_window(cells):
+            values = [board[r][c] for r, c in cells]
+            for player in [1, 2]:
+                if values.count(player) == 3 and values.count(0) == 1:
+                    counts[player] += 1
+
+        # Horizontal windows
+        for row in range(6):
+            for col in range(4):
+                check_window([(row, col + i) for i in range(4)])
+
+        # Vertical windows
+        for row in range(3):
+            for col in range(7):
+                check_window([(row + i, col) for i in range(4)])
+
+        # Diagonal (bottom-left to top-right)
+        for row in range(3, 6):
+            for col in range(4):
+                check_window([(row - i, col + i) for i in range(4)])
+
+        # Diagonal (top-left to bottom-right)
+        for row in range(3):
+            for col in range(4):
+                check_window([(row + i, col + i) for i in range(4)])
+
+        return counts
 
 
 class Policy(ABC):
